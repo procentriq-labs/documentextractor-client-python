@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "documentextractor_client"
+dynamic = ["version"]
+authors = [
+  { name="Philipp Heller", email="philipp@documentextractor.ai" },
+]
+description = "A Python client for the DocumentExtractor API."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache 2.0 License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "requests>=2.25.0",
+    "pydantic>=2.0",
+    "documentextractor_commons>=0.1.0"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/procentriq-hq/documentextractor_client"
+"Bug Tracker" = "https://github.com/procentriq-hq/documentextractor_client/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "documentextractor_client.__version__"}
