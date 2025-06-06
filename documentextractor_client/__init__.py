@@ -4,16 +4,44 @@ from .exceptions import (
     AuthenticationError,
     ForbiddenError,
     ClientRequestError,
-    APIServerError
+    APIServerError,
 )
 
-__version__ = "0.1.0"
+from documentextractor_commons.models.transfer import (
+    WorkflowCreate,
+    WorkflowUpdate,
+    SchemaCreate,
+    RunCreate,
+    FileResponse,
+    WorkflowResponse,
+    RunResponse,
+    RunResult,
+    FileExtractionResult,
+)
+from documentextractor_commons.models.core import RunStatus
 
 __all__ = [
+    # Client
     "DocumentExtractorAPIClient",
+
+    # Exceptions
     "DocumentExtractorAPIError",
     "AuthenticationError",
     "ForbiddenError",
     "ClientRequestError",
     "APIServerError",
+
+    # Pydantic Models for Payloads and Responses
+    "WorkflowCreate",
+    "WorkflowUpdate",
+    "SchemaCreate",
+    "RunCreate",
+    "FileResponse",
+    "WorkflowResponse",
+    "RunResponse",
+    "RunResult",
+    "FileExtractionResult",
+
+    # Enums
+    "RunStatus",
 ]

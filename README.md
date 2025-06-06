@@ -1,20 +1,10 @@
 # DocumentExtractor API Client
 
-A Python client for interacting with the DocumentExtractor API.
-
-## Features
-
-* List, upload, get, and delete files.
-* Create, list, get, update, and delete workflows.
-* Manage workflow runs and retrieve results in various formats.
+A Python client for extracting structured data from documents using the DocumentExtractor API.
 
 ## Installation
 
-```bash
-pip install documentextractor-client
-````
-
-*(Once you publish it to PyPI. For local development: `pip install .` from the `documentextractor_client_project` directory)*
+...TBD
 
 ## Dependencies
 
@@ -24,7 +14,7 @@ pip install documentextractor-client
 
 ## Usage
 
-...
+...TBD
 
 ## License
 

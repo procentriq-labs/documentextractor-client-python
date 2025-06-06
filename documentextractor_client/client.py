@@ -1,10 +1,16 @@
 import mimetypes
 import requests
 import json
+from http import HTTPStatus
 from typing import List, Optional, Union, Any
 from uuid import UUID
 
+from documentextractor_commons.models.core import (
+    FileType,
+    RunStatus,
+)
 from documentextractor_commons.models.transfer import (
+    FileExtractionResult,
     FileResponse,
     WorkflowCreate,
     WorkflowUpdate,
@@ -12,7 +18,7 @@ from documentextractor_commons.models.transfer import (
     RunCreate,
     RunResponse,
     RunResult,
-    RunResultResponseFormat,
+    SchemaResponse,
 )
 
 from .exceptions import (
@@ -23,90 +29,231 @@ from .exceptions import (
     APIServerError,
 )
 
-class DocumentExtractorAPIClient:
-    """
-    Python client for the DocumentExtractor API.
-    """
+# --- Forward Declarations for Type Hinting ---
+class DocumentExtractorAPIClient: pass
+class File: pass
+class Workflow: pass
+class Run: pass
+class RunResultsContainer: pass
+class ExtractedDataItems: pass
+class FilesCollection: pass
+class WorkflowsCollection: pass
+class WorkflowRunsCollection: pass
 
-    def __init__(self, root_url: str, api_key: str):
-        """
-        Initializes the API client.
 
-        :param root_url: The base URL for the API (e.g., "https://api.documentextractor.ai").
-        :param api_key: Your API key for authentication.
-        """
-        self.root_url = root_url.rstrip('/')
-        self.api_key = api_key
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Accept": "application/json" # Default, can be overridden
-        }
+# --- Resource Objects ---
+class File:
+    """Represents a single file resource in the DocumentExtractor API."""
+    def __init__(self, root_client: DocumentExtractorAPIClient, response_data: FileResponse):
+        self._root_client = root_client
+        self._response_data = response_data
 
-    def _request(self, method: str, path: str, parse_json: bool = True, **kwargs) -> Union[Any, requests.Response]:
-        url = f"{self.root_url}{path}"
-        request_headers = self.headers.copy()
-        if 'headers' in kwargs:
-            request_headers.update(kwargs.pop('headers'))
+    @property
+    def data(self) -> FileResponse:
+        """The underlying Pydantic response model for the file."""
+        return self._response_data
 
-        try:
-            response = requests.request(method, url, headers=request_headers, **kwargs)
-            response.raise_for_status()
+    @property
+    def id(self) -> UUID: return self.data.id
+    @property
+    def filename(self) -> str: return self.data.filename
+    @property
+    def filetype(self) -> FileType: return self.data.filetype
+    @property
+    def size(self) -> int: return self.data.size
 
-            if not parse_json:
-                return response
+    def __repr__(self) -> str:
+        return f"<File id='{self.id}' filename='{self.filename}'>"
 
-            if response.status_code == 204: # No Content
-                return None
-            return response.json()
+    def refresh(self) -> "File":
+        """Re-fetches the file's details from the API and updates the object."""
+        fresh_data = self._root_client._request("GET", f"/v1/files/{self.id}")
+        self._response_data = FileResponse(**fresh_data)
+        return self
 
-        except requests.exceptions.HTTPError as e:
-            error_details = None
-            status_code = e.response.status_code if e.response is not None else None
-            
-            try:
-                if e.response is not None:
-                    error_details = e.response.json()
-            except json.JSONDecodeError:
-                if e.response is not None:
-                    error_details = e.response.text
-            
-            if status_code == 401:
-                raise AuthenticationError(details=error_details) from e
-            elif status_code == 403:
-                raise ForbiddenError(details=error_details) from e
-            elif status_code and 400 <= status_code < 500:
-                # Catches all other 4xx errors
-                msg = f"Client error {status_code}"
-                if error_details and isinstance(error_details, dict) and error_details.get('detail'):
-                    msg = f"Client error {status_code}: {error_details['detail']}"
-                elif isinstance(error_details, str) and len(error_details) < 100: # Arbitrary length for short error strings
-                    msg = f"Client error {status_code}: {error_details}"
+    def delete(self) -> None:
+        """Deletes the file from the API."""
+        self._root_client._request("DELETE", f"/v1/files/{self.id}", parse_json=False)
 
-                raise ClientRequestError(message=msg, status_code=status_code, details=error_details) from e
-            elif status_code and 500 <= status_code < 600:
-                msg = f"Server error {status_code}"
-                raise APIServerError(message=msg, status_code=status_code, details=error_details) from e
-            else:
-                # Fallback for other HTTP errors or if status_code is None
-                msg = f"HTTP Error {status_code if status_code else 'Unknown'} for {url}"
-                raise DocumentExtractorAPIError(message=msg, status_code=status_code, details=error_details) from e
+
+class Workflow:
+    """Represents a single workflow resource."""
+    def __init__(self, root_client: DocumentExtractorAPIClient, response_data: WorkflowResponse):
+        self._root_client = root_client
+        self._response_data = response_data
+        self._runs_collection = None # For caching
+
+    @property
+    def data(self) -> WorkflowResponse:
+        """The underlying Pydantic response model for the workflow."""
+        return self._response_data
         
-        except requests.exceptions.RequestException as e:
-            # For network errors, timeouts, etc.
-            raise DocumentExtractorAPIError(f"Request failed for {url}: {e}") from e
+    @property
+    def id(self) -> UUID: return self.data.id
+    @property
+    def name(self) -> str: return self.data.name
+    @property
+    def extraction_schema(self) -> SchemaResponse: return self.data.extraction_schema
 
-    # --- Files Endpoints ---
-    def list_files(self) -> List[FileResponse]:
-        response_data = self._request("GET", "/v1/files/")
-        return [FileResponse(**item) for item in response_data]
+    def __repr__(self) -> str:
+        return f"<Workflow id='{self.id}' name='{self.name}'>"
+        
+    @property
+    def runs(self) -> "WorkflowRunsCollection":
+        """Provides access to the collection of runs for this workflow."""
+        if self._runs_collection is None:
+            self._runs_collection = WorkflowRunsCollection(self._root_client, self.id)
+        return self._runs_collection
 
-    def upload_file(self, file_path: str, file_content: Optional[bytes] = None, filename: Optional[str] = None) -> FileResponse:
-        """
-        Upload a file and receive its ID and details.
-        :param file_path: Path to the file to be uploaded (used for filename and mimetype if file_content is None).
-        :param file_content: Optional bytes content of the file. If provided, filename must also be set.
-        :param filename: Optional filename if file_content is provided.
-        """
+    def refresh(self) -> "Workflow":
+        """Re-fetches the workflow's details from the API."""
+        fresh_data = self._root_client._request("GET", f"/v1/workflows/{self.id}")
+        self._response_data = WorkflowResponse(**fresh_data)
+        return self
+
+    def update(self, payload: WorkflowUpdate) -> "Workflow":
+        """Partially updates the workflow's attributes (PATCH)."""
+        updated_data = self._root_client._request(
+            "PATCH", f"/v1/workflows/{self.id}", 
+            data=payload.model_dump_json(exclude_unset=True)
+        )
+        self._response_data = WorkflowResponse(**updated_data)
+        return self
+
+    def override(self, payload: WorkflowCreate) -> "Workflow":
+        """Completely replaces the workflow with new data (PUT)."""
+        overridden_data = self._root_client._request(
+            "PUT", f"/v1/workflows/{self.id}", 
+            data=payload.model_dump_json()
+        )
+        self._response_data = WorkflowResponse(**overridden_data)
+        return self
+
+    def delete(self) -> None:
+        """Deletes the workflow."""
+        self._root_client._request("DELETE", f"/v1/workflows/{self.id}", parse_json=False)
+
+
+class Run:
+    """Represents a single workflow run."""
+    def __init__(self, root_client: DocumentExtractorAPIClient, response_data: RunResponse):
+        self._root_client = root_client
+        self._response_data = response_data
+
+    @property
+    def data(self) -> RunResponse:
+        """The underlying Pydantic response model for the run."""
+        return self._response_data
+
+    @property
+    def run_num(self) -> int: return self.data.run_num
+    @property
+    def workflow_id(self) -> UUID: return self.data.workflow_id
+    @property
+    def status(self) -> RunStatus: return self.data.status
+    
+    def __repr__(self) -> str:
+        return f"<Run num={self.run_num} workflow_id='{self.workflow_id}' status='{self.status.value}'>"
+
+    def refresh(self) -> "Run":
+        """Re-fetches the run's details from the API."""
+        fresh_data = self._root_client._request(
+            "GET", f"/v1/workflows/{self.workflow_id}/runs/{self.run_num}"
+        )
+        self._response_data = RunResponse(**fresh_data)
+        return self
+
+    def get_results(self) -> "RunResultsContainer":
+        """Fetches the run results (in JSON format) and returns a container object."""
+        # This will raise an error if the run is not in a completed state,
+        # which is the desired behavior from the API.
+        json_data = self._root_client._request(
+            "GET", f"/v1/workflows/{self.workflow_id}/runs/{self.run_num}/results",
+            headers={'Accept': 'application/json'}
+        )
+        result_model = RunResult(**json_data)
+        return RunResultsContainer(self._root_client, self.workflow_id, self.run_num, result_model)
+
+
+class ExtractedDataItems:
+    """Provides access to the extracted items from a run result in various formats."""
+    def __init__(self, root_client: DocumentExtractorAPIClient, workflow_id: UUID, run_num: int, items: List[FileExtractionResult]):
+        self._root_client = root_client
+        self._workflow_id = workflow_id
+        self._run_num = run_num
+        self._items = items
+    
+    @property
+    def raw(self) -> List[FileExtractionResult]:
+        """Returns the list of Pydantic FileExtractionResult models."""
+        return self._items
+
+    def as_csv(self) -> str:
+        """Fetches the run results in CSV format from the API."""
+        response = self._root_client._request(
+            "GET", f"/v1/workflows/{self._workflow_id}/runs/{self._run_num}/results",
+            headers={'Accept': 'text/csv'},
+            parse_json=False
+        )
+        return response.text
+
+    def as_excel(self) -> bytes:
+        """Fetches the run results in Excel format from the API."""
+        response = self._root_client._request(
+            "GET", f"/v1/workflows/{self._workflow_id}/runs/{self._run_num}/results",
+            headers={'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},
+            parse_json=False
+        )
+        return response.content
+
+
+class RunResultsContainer:
+    """A container for the results of a completed run."""
+    def __init__(self, root_client: DocumentExtractorAPIClient, workflow_id: UUID, run_num: int, result_model: RunResult):
+        self._root_client = root_client
+        self._workflow_id = workflow_id
+        self._run_num = run_num
+        self._model = result_model
+        self._extracted_data_obj = None # For caching
+
+    @property
+    def model(self) -> RunResult:
+        """The underlying Pydantic RunResult model, containing both results and errors."""
+        return self._model
+    
+    @property
+    def errors(self) -> List[str]:
+        """A list of any errors that occurred during the run."""
+        return self.model.errors
+    
+    @property
+    def extracted_data(self) -> ExtractedDataItems:
+        """An object providing access to the extracted data items."""
+        if self._extracted_data_obj is None:
+            self._extracted_data_obj = ExtractedDataItems(
+                self._root_client, self._workflow_id, self._run_num, self.model.results
+            )
+        return self._extracted_data_obj
+
+
+# --- Collection Managers ---
+class FilesCollection:
+    """Manages operations for the collection of all files."""
+    def __init__(self, root_client: DocumentExtractorAPIClient):
+        self._root_client = root_client
+
+    def list(self) -> List[File]:
+        """Retrieve a list of all accessible files."""
+        response_data = self._root_client._request("GET", "/v1/files/")
+        return [File(self._root_client, FileResponse(**item)) for item in response_data]
+    
+    def get(self, file_uuid: UUID) -> File:
+        """Retrieve a specific file by its UUID."""
+        response_data = self._root_client._request("GET", f"/v1/files/{file_uuid}")
+        return File(self._root_client, FileResponse(**response_data))
+
+    def upload(self, file_path: str, file_content: Optional[bytes] = None, filename: Optional[str] = None) -> File:
+        """Upload a file from a path or byte content."""
         if file_content is not None and filename is None:
             raise ValueError("filename must be provided if file_content is specified.")
 
@@ -115,91 +262,120 @@ class DocumentExtractorAPIClient:
         if mime_type is None:
             mime_type = 'application/octet-stream'
 
+        files_payload = None
         if file_content is not None:
-            files = {'file': (_filename, file_content, mime_type)}
-            response_data = self._request("POST", "/v1/files/", files=files)
+            files_payload = {'file': (_filename, file_content, mime_type)}
+            response_data = self._root_client._request("POST", "/v1/files/", files=files_payload)
         else:
             with open(file_path, 'rb') as f:
-                files = {'file': (_filename, f, mime_type)}
-                response_data = self._request("POST", "/v1/files/", files=files)
-        return FileResponse(**response_data)
+                files_payload = {'file': (_filename, f, mime_type)}
+                response_data = self._root_client._request("POST", "/v1/files/", files=files_payload)
+        
+        return File(self._root_client, FileResponse(**response_data))
 
-    def get_file(self, file_uuid: UUID) -> FileResponse:
-        response_data = self._request("GET", f"/v1/files/{file_uuid}")
-        return FileResponse(**response_data)
 
-    def delete_file(self, file_uuid: UUID) -> None:
-        self._request("DELETE", f"/v1/files/{file_uuid}", parse_json=False)
-        return None
+class WorkflowsCollection:
+    """Manages operations for the collection of all workflows."""
+    def __init__(self, root_client: DocumentExtractorAPIClient):
+        self._root_client = root_client
 
-    # --- Workflows Endpoints ---
-    def list_workflows(self) -> List[WorkflowResponse]:
-        response_data = self._request("GET", "/v1/workflows/")
-        return [WorkflowResponse(**item) for item in response_data]
+    def list(self) -> List[Workflow]:
+        """Retrieve a list of all workflows."""
+        response_data = self._root_client._request("GET", "/v1/workflows/")
+        return [Workflow(self._root_client, WorkflowResponse(**item)) for item in response_data]
 
-    def create_workflow(self, workflow_data: WorkflowCreate) -> WorkflowResponse:
-        response_data = self._request("POST", "/v1/workflows/", json=workflow_data.model_dump(exclude_none=True))
-        return WorkflowResponse(**response_data)
+    def get(self, workflow_uuid: UUID) -> Workflow:
+        """Retrieve a specific workflow by its UUID."""
+        response_data = self._root_client._request("GET", f"/v1/workflows/{workflow_uuid}")
+        return Workflow(self._root_client, WorkflowResponse(**response_data))
 
-    def get_workflow(self, workflow_uuid: UUID) -> WorkflowResponse:
-        response_data = self._request("GET", f"/v1/workflows/{workflow_uuid}")
-        return WorkflowResponse(**response_data)
+    def create(self, payload: WorkflowCreate) -> Workflow:
+        """Create a new extraction workflow."""
+        # Use model_dump_json to correctly serialize UUIDs and other types
+        response_data = self._root_client._request(
+            "POST", "/v1/workflows/", 
+            data=payload.model_dump_json()
+        )
+        return Workflow(self._root_client, WorkflowResponse(**response_data))
 
-    def override_workflow(self, workflow_uuid: UUID, workflow_data: WorkflowCreate) -> WorkflowResponse:
-        response_data = self._request("PUT", f"/v1/workflows/{workflow_uuid}", json=workflow_data.model_dump(exclude_none=True))
-        return WorkflowResponse(**response_data)
 
-    def update_workflow(self, workflow_uuid: UUID, workflow_data: WorkflowUpdate) -> WorkflowResponse:
-        response_data = self._request("PATCH", f"/v1/workflows/{workflow_uuid}", json=workflow_data.model_dump(exclude_none=True, exclude_unset=True))
-        return WorkflowResponse(**response_data)
+class WorkflowRunsCollection:
+    """Manages operations for runs within a specific workflow."""
+    def __init__(self, root_client: DocumentExtractorAPIClient, workflow_id: UUID):
+        self._root_client = root_client
+        self._workflow_id = workflow_id
+    
+    def list(self) -> List[Run]:
+        """Retrieve a list of all runs for the parent workflow."""
+        response_data = self._root_client._request("GET", f"/v1/workflows/{self._workflow_id}/runs/")
+        return [Run(self._root_client, RunResponse(**item)) for item in response_data]
 
-    def delete_workflow(self, workflow_uuid: UUID) -> None:
-        self._request("DELETE", f"/v1/workflows/{workflow_uuid}", parse_json=False)
-        return None # TODO return True or False; or at least raise error if unsuccessful (?already happens, right?)
+    def get(self, run_num: int) -> Run:
+        """Retrieve a specific run by its number."""
+        response_data = self._root_client._request("GET", f"/v1/workflows/{self._workflow_id}/runs/{run_num}")
+        return Run(self._root_client, RunResponse(**response_data))
 
-    # --- Runs Endpoints ---
-    def list_workflow_runs(self, workflow_uuid: UUID) -> List[RunResponse]:
-        response_data = self._request("GET", f"/v1/workflows/{workflow_uuid}/runs/")
-        return [RunResponse(**item) for item in response_data]
+    def create(self, payload: RunCreate) -> Run:
+        """Create and start a new run for the parent workflow."""
+        response_data = self._root_client._request(
+            "POST", f"/v1/workflows/{self._workflow_id}/runs/",
+            data=payload.model_dump_json()
+        )
+        return Run(self._root_client, RunResponse(**response_data))
 
-    def create_workflow_run(self, workflow_uuid: UUID, run_data: RunCreate) -> RunResponse:
-        response_data = self._request("POST", f"/v1/workflows/{workflow_uuid}/runs/", json=run_data.model_dump())
-        return RunResponse(**response_data)
 
-    def get_workflow_run_details(self, workflow_uuid: UUID, run_num: int) -> RunResponse:
-        response_data = self._request("GET", f"/v1/workflows/{workflow_uuid}/runs/{run_num}")
-        return RunResponse(**response_data)
+# --- Root API Client ---
+class DocumentExtractorAPIClient:
+    """Python client for the DocumentExtractor API."""
 
-    def get_workflow_run_results(
-        self,
-        workflow_uuid: UUID,
-        run_num: int,
-        accept_format: RunResultResponseFormat = RunResultResponseFormat.JSON,
-        format_option: Optional[str] = None
-    ) -> Union[RunResult, str, bytes]:
-        path = f"/v1/workflows/{workflow_uuid}/runs/{run_num}/results"
-        params = {}
-        if format_option:
-            params['format_option'] = format_option
+    def __init__(self, root_url: str, api_key: str):
+        """Initializes the API client."""
+        if not root_url: raise ValueError("root_url cannot be empty.")
+        self.root_url = root_url.rstrip('/')
+        self.api_key = api_key
+        self._headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json",
+        }
+        self.files = FilesCollection(self)
+        self.workflows = WorkflowsCollection(self)
 
-        custom_headers = self.headers.copy()
-        custom_headers['Accept'] = accept_format.value # Enums from commons should have .value
+    def _request(self, method: str, path: str, parse_json: bool = True, **kwargs) -> Union[Any, requests.Response]:
+        """Internal helper method to make requests to the API."""
+        url = f"{self.root_url}{path}"
+        
+        request_headers = self._headers.copy()
+        if 'headers' in kwargs:
+            request_headers.update(kwargs.pop('headers'))
+        
+        # Conditionally set Content-Type for requests with a JSON body
+        if 'data' in kwargs:
+            request_headers['Content-Type'] = 'application/json'
 
-        response = self._request("GET", path, params=params, headers=custom_headers, parse_json=False)
+        kwargs['headers'] = request_headers
+        
+        try:
+            response = requests.request(method, url, **kwargs)
+            response.raise_for_status()
 
-        if accept_format == RunResultResponseFormat.JSON:
+            if not parse_json: return response
+            if response.status_code == HTTPStatus.NO_CONTENT: return None
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            # Handle structured error raising
+            status_code = e.response.status_code if e.response is not None else None
+            details = None
             try:
-                json_data = response.json()
-                # TODO Assuming RunResult model from commons correctly matches the API response structure
-                return RunResult(**json_data)
+                if e.response is not None: details = e.response.json()
             except json.JSONDecodeError:
-                raise ValueError("Failed to decode JSON response for RunResult.")
-            except TypeError as e: # Catch Pydantic validation errors if structure doesn't match
-                raise ValueError(f"Mismatched JSON structure for RunResult: {json_data}. Error: {e}")
-
-        elif accept_format == RunResultResponseFormat.CSV:
-            return response.text
-        elif accept_format == RunResultResponseFormat.EXCEL:
-            return response.content
-        else:
-            raise ValueError(f"Unsupported accept_format: {accept_format}")
+                if e.response is not None: details = e.response.text
+            
+            if status_code == HTTPStatus.UNAUTHORIZED: raise AuthenticationError(details=details) from e
+            if status_code == HTTPStatus.FORBIDDEN: raise ForbiddenError(details=details) from e
+            if status_code and HTTPStatus.BAD_REQUEST <= status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
+                raise ClientRequestError(message=f"Client Error: {status_code}", status_code=status_code, details=details) from e
+            if status_code and HTTPStatus.INTERNAL_SERVER_ERROR <= status_code < 600:
+                raise APIServerError(message=f"Server Error: {status_code}", status_code=status_code, details=details) from e
+            raise DocumentExtractorAPIError(message=f"HTTP Error {status_code}", status_code=status_code, details=details) from e
+        except requests.exceptions.RequestException as e:
+            raise DocumentExtractorAPIError(f"Request failed for {url}: {e}") from e
