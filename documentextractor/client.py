@@ -376,7 +376,7 @@ class WorkflowRunsCollection:
 class DocumentExtractorAPIClient:
     """Python client for the DocumentExtractor API."""
 
-    def __init__(self, root_url: str, api_key: str):
+    def __init__(self, api_key: str, root_url: str = "https://api.documentextractor.ai"):
         """Initializes the API client."""
         if not root_url: raise ValueError("root_url cannot be empty.")
         self.root_url = root_url.rstrip('/')
