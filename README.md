@@ -1,35 +1,77 @@
-# DocumentExtractor API Client
+# DocumentExtractor.AI Python Client
 
-A Python client for extracting structured data from documents using the DocumentExtractor API.
+A Python client for extracting structured data from documents using the [DocumentExtractor API](https://documentextractor.ai).  
+It provides convenient methods to upload documents, define extraction schemas, start extraction workflows, and retrieve structured results.
 
-## Installation
+---
 
-...TBD
+## 📦 Installation
 
-## Dependencies
+```bash
+pip install documentextractor
+```
 
-  * [requests](https://pypi.org/project/requests/)
-  * [Pydantic](https://pypi.org/project/pydantic/)
-  * documentextractor-commons (internal)
+---
 
-## Usage
+## 🚀 Quick Example
 
-...TBD
+You can get started with just a few lines of code:
 
-For a complete, runnable script, see the `examples/basic_usage.py` file in the repository.
+```python
+import os
 
-## License
+from documentextractor import DocumentExtractorAPIClient, WorkflowCreate, SchemaCreate, RunCreate
 
-Copyright 2025 Philipp Heller
+api = DocumentExtractorAPIClient(
+    api_key=os.environ.get("DOCUMENTEXTRACTOR_API_KEY"),
+    root_url=os.environ.get("DOCUMENTEXTRACTOR_API_URL"),
+)
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+# Upload a Document
+file = api.files.upload(
+    os.path.join(os.path.dirname(__file__), "example_invoice.pdf")
+)
 
-    http://www.apache.org/licenses/LICENSE-2.0
+# Define a workflow and extraction schema
+workflow = api.workflows.create(payload=WorkflowCreate(
+    name="Simple Invoice Extraction",
+    extraction_schema=SchemaCreate(
+    name="Invoice Schema",
+    description="Extract invoice number and total amount",
+    type="Text",
+    is_array=False,
+    children=[
+        SchemaCreate(key="invoice_number", description="Sender-issued invoice number", type="Text", is_array=False),
+        SchemaCreate(key="total_amount", description="Total amount payable", type="Number", is_array=False),
+    ],
+),
+))
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+try:
+    # Trigger a run
+    results = await workflow.runs.create_and_wait_for_results(payload=RunCreate(file_ids=[file.id]))
+
+    # Get structured results
+    extracted_items = results.extracted_data.raw
+    print(f"   - Found {len(extracted_items)} extracted item(s).")
+    if extracted_items:
+        # Pretty-print the structured data of the first result
+        print("   - Data from first result:")
+        import json
+        print(json.dumps(extracted_items[0].data, indent=2))
+except Exception as e:
+    print(f"Error extracting data: {e}")
+```
+
+For the best experience, however, it's recommended to get more familiar with the client. For a full end-to-end usage script, see [`examples/basic_usage.py`](examples/basic_usage.py).
+
+---
+
+## 📄 License
+
+Copyright © 2025 Philipp Heller
+
+Licensed under the [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0).
+You may not use this file except in compliance with the License.
+
+See the [LICENSE](LICENSE) file for details.
