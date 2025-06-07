@@ -33,6 +33,10 @@ from .exceptions import (
     RunTimeoutError
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # --- Forward Declarations for Type Hinting ---
 class DocumentExtractorAPIClient: pass
 class File: pass
@@ -346,9 +350,9 @@ class WorkflowRunsCollection:
         :raises RunTimeoutError: If the run does not complete within the specified timeout.
         :return: A RunResultsContainer object with the extraction results.
         """
-        print(f"Starting run and polling for completion (interval: {polling_interval}s, timeout: {timeout}s)...")
+        logger.debug(f"Starting run and polling for completion (interval: {polling_interval}s, timeout: {timeout}s)...")
         run = self.create(payload)
-        print(f"  -> Run {run.run_num} created with status '{run.status.value}'.")
+        logger.debug(f"  -> Run {run.run_num} created with status '{run.status.value}'.")
 
         start_time = time.time()
         while True:
@@ -357,17 +361,17 @@ class WorkflowRunsCollection:
                 raise RunTimeoutError(f"Run {run.run_num} did not complete within the {timeout}s timeout.")
 
             if run.status == RunStatus.COMPLETED:
-                print(f"  -> Run {run.run_num} completed successfully.")
+                logger.debug(f"  -> Run {run.run_num} completed successfully.")
                 return run.get_results()
 
             if run.status in [RunStatus.FAILED, RunStatus.CANCELLED]:
-                print(f"  -> Run {run.run_num} finished with status '{run.status.value}'.")
+                logger.debug(f"  -> Run {run.run_num} finished with status '{run.status.value}'.")
                 raise RunFailedError(
                     f"Run {run.run_num} finished with status '{run.status.value}'.",
                     run_status=run.status
                 )
 
-            print(f"  - Status is '{run.status.value}', waiting {polling_interval}s... (elapsed: {int(elapsed_time)}s)")
+            logger.debug(f"  - Status is '{run.status.value}', waiting {polling_interval}s... (elapsed: {int(elapsed_time)}s)")
             await asyncio.sleep(polling_interval)
             run.refresh()
 
