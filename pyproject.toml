@@ -27,5 +27,5 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/procentriq-hq/documentextractor_client"
-"Bug Tracker" = "https://github.com/procentriq-hq/documentextractor_client/issues"
+"Homepage" = "https://github.com/procentriq-hq/documentextractor-client-python"
+"Bug Tracker" = "https://github.com/procentriq-hq/documentextractor-client-python/issues"
