@@ -24,7 +24,6 @@ from documentextractor import DocumentExtractorAPIClient, WorkflowCreate, Schema
 
 api = DocumentExtractorAPIClient(
     api_key=os.environ.get("DOCUMENTEXTRACTOR_API_KEY"),
-    root_url=os.environ.get("DOCUMENTEXTRACTOR_API_URL"),
 )
 
 # Upload a Document
