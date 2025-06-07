@@ -3,17 +3,19 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "documentextractor_client"
+name = "documentextractor"
 version = "0.3.0"
 authors = [
   { name="Philipp Heller", email="philipp@documentextractor.ai" },
 ]
-description = "A Python client for the DocumentExtractor API."
+description = "The official Python client for the DocumentExtractor API."
+keywords = ["api-client", "document-extraction", "ocr", "documentextractor"]
 readme = "README.md"
+license = { text = "Apache-2.0" }
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache 2.0 License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -21,7 +23,7 @@ classifiers = [
 dependencies = [
     "requests>=2.25.0",
     "pydantic>=2.0",
-    "documentextractor_commons>=0.1.0"
+    "documentextractor_commons>=0.2.0"
 ]
 
 [project.urls]

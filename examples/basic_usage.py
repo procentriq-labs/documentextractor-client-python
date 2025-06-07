@@ -12,12 +12,11 @@ The script performs the following steps:
 """
 import asyncio
 import os
-import time
 import requests
 
 # --- Import the client and its exceptions ---
-from documentextractor_client.client import DocumentExtractorAPIClient
-from documentextractor_client.exceptions import (
+from documentextractor.client import DocumentExtractorAPIClient
+from documentextractor.exceptions import (
     AuthenticationError,
     ClientRequestError,
     APIServerError,
