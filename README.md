@@ -28,9 +28,7 @@ api = DocumentExtractorAPIClient(
 )
 
 # Upload a Document
-file = api.files.upload(
-    os.path.join(os.path.dirname(__file__), "example_invoice.pdf")
-)
+file = api.files.upload("example_invoice.pdf")
 
 # Define a workflow and extraction schema
 workflow = api.workflows.create(payload=WorkflowCreate(
