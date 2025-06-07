@@ -16,6 +16,8 @@ A Python client for extracting structured data from documents using the Document
 
 ...TBD
 
+For a complete, runnable script, see the `examples/basic_usage.py` file in the repository.
+
 ## License
 
 Copyright 2025 Philipp Heller
