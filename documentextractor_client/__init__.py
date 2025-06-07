@@ -5,6 +5,8 @@ from .exceptions import (
     ForbiddenError,
     ClientRequestError,
     APIServerError,
+    RunFailedError,
+    RunTimeoutError
 )
 
 from documentextractor_commons.models.transfer import (
@@ -30,6 +32,8 @@ __all__ = [
     "ForbiddenError",
     "ClientRequestError",
     "APIServerError",
+    "RunFailedError",
+    "RunTimeoutError",
 
     # Pydantic Models for Payloads and Responses
     "WorkflowCreate",

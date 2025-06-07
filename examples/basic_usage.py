@@ -10,6 +10,7 @@ The script performs the following steps:
 5.  Fetches and prints the structured results if the run was successful.
 6.  Cleans up by deleting the created workflow and file from the server.
 """
+import asyncio
 import os
 import time
 import requests
@@ -20,6 +21,8 @@ from documentextractor_client.exceptions import (
     AuthenticationError,
     ClientRequestError,
     APIServerError,
+    RunFailedError,
+    RunTimeoutError,
 )
 
 # --- Import required Pydantic models from the commons library ---
@@ -28,7 +31,6 @@ from documentextractor_commons.models.transfer import (
     SchemaCreate,
     RunCreate,
 )
-from documentextractor_commons.models.core import RunStatus
 
 
 def create_invoice_schema_payload() -> WorkflowCreate:
@@ -84,8 +86,7 @@ def create_invoice_schema_payload() -> WorkflowCreate:
 
     return workflow_payload
 
-
-def main():
+async def main():
     """
     Main function to execute the example workflow.
     """
@@ -131,26 +132,10 @@ def main():
         # 3. Create and start a new run
         print(f"\n3. Triggering a run for workflow '{created_workflow.name}'...")
         run_payload = RunCreate(file_ids=[uploaded_file.id])
-        # Use the 'runs' manager on the specific workflow object
-        new_run = created_workflow.runs.create(payload=run_payload)
-        print(f"   -> Success! Run created: {new_run}")
 
-        # 4. Poll for run completion
-        print("\n4. Polling for run completion (checking every 5 seconds)...")
-        while new_run.status not in [RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED]:
-            print(f"   - Current status is '{new_run.status.value}'. Waiting...")
-            time.sleep(5)
-            new_run.refresh()  # Updates the object's status in place
-        
-        print(f"   -> Finished! Final run status: '{new_run.status.value}'")
-
-        # 5. Get and process the results
-        if new_run.status == RunStatus.COMPLETED:
-            print("\n5. Fetching and processing results...")
-            
-            results_container = new_run.get_results()
-
-            # Access any errors from the run
+        try:
+            # Using async run manager; alternatively start run with run = workflow.runs.create(...) and poll results by updating run.status via run.refresh()
+            results_container = await created_workflow.runs.create_and_wait_for_results(payload=run_payload)
             if results_container.errors:
                 print(f"   - NOTE: Run completed with errors: {results_container.errors}")
             
@@ -171,9 +156,12 @@ def main():
             print("   - Fetching results as Excel...")
             excel_bytes = results_container.extracted_data.as_excel()
             print(f"     -> Received {len(excel_bytes)} bytes of Excel data.")
-
-        else:
-            print("\nRun did not complete successfully. Skipping results processing.")
+        except RunFailedError as e:
+            print(f"\n[FATAL ERROR] Failed to process document. Details: {e.details}")
+        except RunTimeoutError as e:
+            print(f"\n[FATAL ERROR] Timeout while trying to process documents. Details: {e.details}")
+        except Exception as e:
+            raise
 
     # --- Error Handling ---
     except AuthenticationError as e:
@@ -203,4 +191,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

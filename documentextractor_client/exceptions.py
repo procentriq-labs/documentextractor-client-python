@@ -1,3 +1,4 @@
+from documentextractor_commons.models.core import RunStatus
 class DocumentExtractorAPIError(Exception):
     """Base exception for errors from the DocumentExtractoror API client."""
     def __init__(self, message, status_code=None, details=None):
@@ -35,3 +36,14 @@ class APIServerError(DocumentExtractorAPIError):
     def __init__(self, message="API server error", status_code=None, details=None):
         # status_code will be set by the _request method
         super().__init__(message, status_code=status_code, details=details)
+
+class RunFailedError(DocumentExtractorAPIError):
+    """Raised by create_and_wait_for_results if the run terminates in a failed state."""
+    def __init__(self, message, run_status: RunStatus):
+        super().__init__(message, status_code=None, details={"final_status": run_status.value})
+        self.run_status = run_status
+
+class RunTimeoutError(TimeoutError, DocumentExtractorAPIError):
+    """Raised by create_and_wait_for_results if the run exceeds the timeout."""
+    def __init__(self, message):
+        super().__init__(message)

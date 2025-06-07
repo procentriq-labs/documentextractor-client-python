@@ -1,6 +1,8 @@
 import mimetypes
 import requests
 import json
+import asyncio
+import time
 from http import HTTPStatus
 from typing import List, Optional, Union, Any
 from uuid import UUID
@@ -27,6 +29,8 @@ from .exceptions import (
     ForbiddenError,
     ClientRequestError,
     APIServerError,
+    RunFailedError,
+    RunTimeoutError
 )
 
 # --- Forward Declarations for Type Hinting ---
@@ -322,6 +326,50 @@ class WorkflowRunsCollection:
             data=payload.model_dump_json()
         )
         return Run(self._root_client, RunResponse(**response_data))
+    
+    async def create_and_wait_for_results(
+        self,
+        payload: RunCreate,
+        polling_interval: int = 5,
+        timeout: int = 300
+    ) -> "RunResultsContainer":
+        """
+        Creates a new run, polls for its completion, and returns the results.
+
+        This is a synchronous, blocking helper method that encapsulates the
+        create -> poll -> get results workflow.
+
+        :param payload: The RunCreate payload with file IDs.
+        :param polling_interval: The time in seconds to wait between status checks.
+        :param timeout: The maximum time in seconds to wait for the run to complete.
+        :raises RunFailedError: If the run finishes with a FAILED or CANCELLED status.
+        :raises RunTimeoutError: If the run does not complete within the specified timeout.
+        :return: A RunResultsContainer object with the extraction results.
+        """
+        print(f"Starting run and polling for completion (interval: {polling_interval}s, timeout: {timeout}s)...")
+        run = self.create(payload)
+        print(f"  -> Run {run.run_num} created with status '{run.status.value}'.")
+
+        start_time = time.time()
+        while True:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > timeout:
+                raise RunTimeoutError(f"Run {run.run_num} did not complete within the {timeout}s timeout.")
+
+            if run.status == RunStatus.COMPLETED:
+                print(f"  -> Run {run.run_num} completed successfully.")
+                return run.get_results()
+
+            if run.status in [RunStatus.FAILED, RunStatus.CANCELLED]:
+                print(f"  -> Run {run.run_num} finished with status '{run.status.value}'.")
+                raise RunFailedError(
+                    f"Run {run.run_num} finished with status '{run.status.value}'.",
+                    run_status=run.status
+                )
+
+            print(f"  - Status is '{run.status.value}', waiting {polling_interval}s... (elapsed: {int(elapsed_time)}s)")
+            await asyncio.sleep(polling_interval)
+            run.refresh()
 
 
 # --- Root API Client ---
