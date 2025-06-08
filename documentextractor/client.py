@@ -68,6 +68,8 @@ class File:
     @property
     def filetype(self) -> FileType: return self.data.filetype
     @property
+    def num_pages(self) -> int: return self.data.num_pages
+    @property
     def size(self) -> int: return self.data.size
 
     def __repr__(self) -> str:
