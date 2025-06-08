@@ -61,7 +61,6 @@ def create_invoice_schema_payload() -> WorkflowCreate:
     extraction_schema = SchemaCreate(
         name="Invoice Schema",
         description="Extract invoice details",
-        type="Text", # Root object type
         is_array=False,
         children=[
             SchemaCreate(key="invoice_number", name="Invoice Number", type="Text", is_array=False, description="Invoice number"),
