@@ -4,7 +4,7 @@ import json
 import asyncio
 import time
 from http import HTTPStatus
-from typing import List, Optional, Union, Any
+from typing import List, Optional, Union, Any, IO
 from uuid import UUID
 
 from documentextractor_commons.models.core import (
@@ -262,26 +262,63 @@ class FilesCollection:
         response_data = self._root_client._request("GET", f"/v1/files/{file_uuid}")
         return File(self._root_client, FileResponse(**response_data))
 
-    def upload(self, file_path: str, file_content: Optional[bytes] = None, filename: Optional[str] = None) -> File:
-        """Upload a file from a path or byte content."""
-        if file_content is not None and filename is None:
-            raise ValueError("filename must be provided if file_content is specified.")
+    def upload(
+        self,
+        file_path: Optional[str] = None,
+        file_content: Optional[bytes] = None,
+        file_stream: Optional[IO[bytes]] = None,
+        filename: Optional[str] = None,
+    ) -> File:
+        """
+        Upload a file from a path, byte content, or a file stream.
 
-        _filename = filename if filename else file_path.split('/')[-1]
-        mime_type, _ = mimetypes.guess_type(file_path if file_content is None else _filename)
+        Exactly one of `file_path`, `file_content`, or `file_stream` must be provided.
+
+        Args:
+            file_path: The local path to the file to upload.
+            file_content: The raw byte content of the file to upload.
+            file_stream: An open file-like object (e.g., from open(..., 'rb')) to upload.
+            filename: The name to assign to the file. If not provided, it will be inferred
+                      from `file_path` or the `name` attribute of `file_stream`.
+                      This parameter is required when using `file_content`.
+
+        Returns:
+            A File object representing the uploaded file.
+        
+        Raises:
+            ValueError: If the input arguments are invalid.
+        """
+        num_inputs = sum(1 for item in [file_path, file_content, file_stream] if item is not None)
+        if num_inputs != 1:
+            raise ValueError("Exactly one of file_path, file_content, or file_stream must be provided.")
+
+        _filename = None
+        if filename:
+            _filename = filename
+        elif file_path:
+            _filename = file_path.split('/')[-1]
+        elif file_stream and hasattr(file_stream, 'name') and file_stream.name:
+            _filename = file_stream.name.split('/')[-1]
+
+        if not _filename and (file_content is not None or file_stream is not None):
+            raise ValueError("A `filename` must be provided for `file_content` or for file streams that do not have a 'name' attribute.")
+
+        mime_type, _ = mimetypes.guess_type(_filename)
         if mime_type is None:
             mime_type = 'application/octet-stream'
 
-        files_payload = None
-        if file_content is not None:
-            files_payload = {'file': (_filename, file_content, mime_type)}
+        def perform_upload(file_data_obj):
+            files_payload = {'file': (_filename, file_data_obj, mime_type)}
             response_data = self._root_client._request("POST", "/v1/files/", files=files_payload)
-        else:
+            return File(self._root_client, FileResponse(**response_data))
+
+        if file_path:
             with open(file_path, 'rb') as f:
-                files_payload = {'file': (_filename, f, mime_type)}
-                response_data = self._root_client._request("POST", "/v1/files/", files=files_payload)
-        
-        return File(self._root_client, FileResponse(**response_data))
+                return perform_upload(f)
+        elif file_content:
+            return perform_upload(file_content)
+        elif file_stream:
+            return perform_upload(file_stream)
 
 
 class WorkflowsCollection:
