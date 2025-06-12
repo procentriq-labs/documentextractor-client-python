@@ -3,6 +3,8 @@ import requests
 import json
 import asyncio
 import time
+import os
+from pydantic import ValidationError
 from http import HTTPStatus
 from typing import List, Optional, Union, Any, IO
 from uuid import UUID
@@ -12,6 +14,7 @@ from documentextractor_commons.models.core import (
     RunStatus,
 )
 from documentextractor_commons.models.transfer import (
+    CreateFileRequest,
     FileExtractionResult,
     FileResponse,
     WorkflowCreate,
@@ -21,6 +24,8 @@ from documentextractor_commons.models.transfer import (
     RunResponse,
     RunResult,
     SchemaResponse,
+    UploadRequest,
+    UploadResponse,
 )
 
 from .exceptions import (
@@ -268,25 +273,33 @@ class FilesCollection:
         file_content: Optional[bytes] = None,
         file_stream: Optional[IO[bytes]] = None,
         filename: Optional[str] = None,
+        mime_type: Optional[str] = None,
     ) -> File:
         """
-        Upload a file from a path, byte content, or a file stream.
+        Uploads a file using a 3-step pre-signed URL process.
 
-        Exactly one of `file_path`, `file_content`, or `file_stream` must be provided.
+        This method is designed to be resilient and provide specific error feedback
+        by leveraging the custom exception hierarchy.
 
         Args:
             file_path: The local path to the file to upload.
             file_content: The raw byte content of the file to upload.
             file_stream: An open file-like object (e.g., from open(..., 'rb')) to upload.
             filename: The name to assign to the file. If not provided, it will be inferred
-                      from `file_path` or the `name` attribute of `file_stream`.
-                      This parameter is required when using `file_content`.
+                    from `file_path` or the `name` attribute of `file_stream`.
+                    This parameter is required when using `file_content`.
+            mime_type: MIME-Type of the file. Will be guessed if not supplied.
 
         Returns:
             A File object representing the uploaded file.
         
         Raises:
             ValueError: If the input arguments are invalid.
+            AuthenticationError: If the API key is invalid (401).
+            ForbiddenError: If the user lacks permissions for an action (403).
+            ClientRequestError: For other 4xx errors from the API or S3.
+            APIServerError: For 5xx errors from the API or S3.
+            DocumentExtractorAPIError: For network issues or other unclassified errors.
         """
         num_inputs = sum(1 for item in [file_path, file_content, file_stream] if item is not None)
         if num_inputs != 1:
@@ -296,29 +309,87 @@ class FilesCollection:
         if filename:
             _filename = filename
         elif file_path:
-            _filename = file_path.split('/')[-1]
+            _filename = os.path.basename(file_path)
         elif file_stream and hasattr(file_stream, 'name') and file_stream.name:
-            _filename = file_stream.name.split('/')[-1]
+            _filename = os.path.basename(file_stream.name)
 
-        if not _filename and (file_content is not None or file_stream is not None):
+        if not _filename:
             raise ValueError("A `filename` must be provided for `file_content` or for file streams that do not have a 'name' attribute.")
 
-        mime_type, _ = mimetypes.guess_type(_filename)
         if mime_type is None:
-            mime_type = 'application/octet-stream'
+            mime_type, _ = mimetypes.guess_type(_filename)
+            if mime_type is None:
+                mime_type = 'application/octet-stream'
 
-        def perform_upload(file_data_obj):
-            files_payload = {'file': (_filename, file_data_obj, mime_type)}
-            response_data = self._root_client._request("POST", "/v1/files/", files=files_payload)
-            return File(self._root_client, FileResponse(**response_data))
+        announce_payload = UploadRequest(filename=_filename, content_type=mime_type)
+        announce_response_dict = self._root_client._request(
+            "POST",
+            "/v1/uploads",
+            data=announce_payload.model_dump_json()
+        )
+        
+        try:
+            announce_response = UploadResponse.model_validate(announce_response_dict)
+        except ValidationError as e:
+            raise APIServerError(
+                message="API returned an invalid response during the announce step.",
+                details=str(e)
+            ) from e
+
+        def perform_s3_upload(data_to_upload):
+            try:
+                response = requests.put(
+                    announce_response.upload_url,
+                    data=data_to_upload,
+                    headers={'Content-Type': mime_type}
+                )
+                response.raise_for_status()
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else None
+                details = e.response.text if e.response is not None else None
+                
+                if status_code == 403:
+                    raise ForbiddenError(
+                        message="Permission denied by S3. The pre-signed URL may be expired or invalid.",
+                        details=details
+                    ) from e
+                elif status_code and 400 <= status_code < 500:
+                    raise ClientRequestError(
+                        message=f"S3 returned a client error ({status_code}) during file upload.",
+                        status_code=status_code,
+                        details=details
+                    ) from e
+                elif status_code and 500 <= status_code < 600:
+                    raise APIServerError(
+                        message=f"S3 returned a server error ({status_code}) during file upload.",
+                        status_code=status_code,
+                        details=details
+                    ) from e
+                else:
+                    raise DocumentExtractorAPIError(
+                        message="An unexpected HTTP error occurred during S3 upload.",
+                        status_code=status_code,
+                        details=details
+                    ) from e
+            except requests.exceptions.RequestException as e:
+                raise DocumentExtractorAPIError(f"A network error occurred during the S3 upload: {e}") from e
 
         if file_path:
             with open(file_path, 'rb') as f:
-                return perform_upload(f)
+                perform_s3_upload(f)
         elif file_content:
-            return perform_upload(file_content)
+            perform_s3_upload(file_content)
         elif file_stream:
-            return perform_upload(file_stream)
+            perform_s3_upload(file_stream)
+            
+        finalize_payload = CreateFileRequest(upload_token=announce_response.upload_token)
+        response_data = self._root_client._request(
+            "POST",
+            "/v1/files",
+            data=finalize_payload.model_dump_json()
+        )
+        
+        return File(self._root_client, FileResponse(**response_data))
 
 
 class WorkflowsCollection:
