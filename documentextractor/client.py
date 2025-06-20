@@ -21,6 +21,7 @@ from documentextractor_commons.models.transfer import (
     WorkflowUpdate,
     WorkflowResponse,
     RunCreate,
+    RunUpdate,
     RunResponse,
     RunResult,
     SchemaResponse,
@@ -174,6 +175,16 @@ class Run:
         """Re-fetches the run's details from the API."""
         fresh_data = self._root_client._request(
             "GET", f"/v1/workflows/{self.workflow_id}/runs/{self.run_num}"
+        )
+        self._response_data = RunResponse(**fresh_data)
+        return self
+
+    def start(self) -> "Run":
+        """Starts an unstarted run via the API."""
+
+        fresh_data = self._root_client._request(
+            "PATCH", f"/v1/workflows/{self.workflow_id}/runs/{self.run_num}",
+            data=RunUpdate(status=RunStatus.READY).model_dump_json()
         )
         self._response_data = RunResponse(**fresh_data)
         return self
