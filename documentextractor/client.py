@@ -528,6 +528,8 @@ class DocumentExtractorAPIClient:
             status_code = e.response.status_code if e.response is not None else None
             details = None
             try:
+                if e.response is not None: details = e.response.json().get('detail')
+            except KeyError:
                 if e.response is not None: details = e.response.json()
             except json.JSONDecodeError:
                 if e.response is not None: details = e.response.text
